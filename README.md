@@ -5,8 +5,6 @@
 ![Open Issues](https://img.shields.io/github/issues-raw/Comamoca/swift-overlay?style=flat-square)
 ![Bug Issues](https://img.shields.io/github/issues/Comamoca/swift-overlay/bug?style=flat-square)
 
-<img src="https://swift.org/assets/images/swift.svg" alt="Swift logo" height="100">
-
 # swift-overlay
 
 A Nix overlay providing [Swift](https://swift.org/) toolchains for multiple versions and platforms.
