@@ -25,7 +25,7 @@ jobs:
             runner: macos-14
     runs-on: ${{ matrix.runner }}
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
     - uses: nixbuild/nix-quick-install-action@v30
       with:
         nix-build-max-jobs: auto
