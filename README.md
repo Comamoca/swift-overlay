@@ -1,7 +1,6 @@
 <div align="center">
 
 ![Last commit](https://img.shields.io/github/last-commit/Comamoca/swift-overlay?style=flat-square)
-![Repository Stars](https://img.shields.io/github/stars/Comamoca/swift-overlay?style=flat-square)
 ![Issues](https://img.shields.io/github/issues/Comamoca/swift-overlay?style=flat-square)
 ![Open Issues](https://img.shields.io/github/issues-raw/Comamoca/swift-overlay?style=flat-square)
 ![Bug Issues](https://img.shields.io/github/issues/Comamoca/swift-overlay/bug?style=flat-square)
