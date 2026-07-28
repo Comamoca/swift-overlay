@@ -1,0 +1,20 @@
+{
+  "6.3.3": {
+    "x86_64-linux": {
+      "url": "https://download.swift.org/swift-6.3.3-release/ubuntu2404/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE-ubuntu24.04.tar.gz",
+      "sha256": "sha256-2oJypf3czWWxUp7Q5S4EUm4urdQjfVjWIg7+uXPGzRk="
+    },
+    "aarch64-linux": {
+      "url": "https://download.swift.org/swift-6.3.3-release/ubuntu2404-aarch64/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE-ubuntu24.04-aarch64.tar.gz",
+      "sha256": "sha256-RxJjlUKWU/p2jTcGVYduwbaPapXHiE9eTxeXABQcm38="
+    },
+    "x86_64-darwin": {
+      "url": "https://download.swift.org/swift-6.3.3-release/xcode/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE-osx.pkg",
+      "sha256": "sha256-7oLld3TWZQ+UqgYwJDXW9EoFW5QRaY247LhdmjvMkdA="
+    },
+    "aarch64-darwin": {
+      "url": "https://download.swift.org/swift-6.3.3-release/xcode/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE-osx.pkg",
+      "sha256": "sha256-7oLld3TWZQ+UqgYwJDXW9EoFW5QRaY247LhdmjvMkdA="
+    }
+  }
+}

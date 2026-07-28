@@ -1,0 +1,10 @@
+[project]
+name = "swift-overlay"
+version = "0.1.0"
+description = "Nix overlay for Swift binary toolchains"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "requests>=2.32.4",
+    "jinja2>=3.1.0",
+]

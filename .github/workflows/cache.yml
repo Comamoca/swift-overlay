@@ -1,0 +1,47 @@
+name: "Cache"
+on:
+  pull_request:
+  push:
+  schedule:
+    - cron: '0 2 * * *'  # Run daily at 2 AM UTC
+
+jobs:
+  cache-builds:
+    strategy:
+      matrix:
+        system:
+          - x86_64-linux
+          - aarch64-linux
+          - x86_64-darwin
+          - aarch64-darwin
+        include:
+          - system: x86_64-linux
+            runner: ubuntu-latest
+          - system: aarch64-linux
+            runner: ubuntu-latest
+          - system: x86_64-darwin
+            runner: macos-13
+          - system: aarch64-darwin
+            runner: macos-14
+    runs-on: ${{ matrix.runner }}
+    steps:
+    - uses: actions/checkout@v4
+    - uses: nixbuild/nix-quick-install-action@v30
+      with:
+        nix-build-max-jobs: auto
+    - uses: cachix/cachix-action@v14
+      with:
+        name: swift-overlay
+        authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+    - name: Build all Swift versions for ${{ matrix.system }}
+      run: |
+        # Get all available versions from swift_hashes.json
+        VERSIONS=$(jq -r 'keys[] | select(. != "latest")' swift_hashes.json)
+
+        # Build each version for the current system
+        for version in $VERSIONS; do
+          nix build --system ${{ matrix.system }}
+        done
+
+        # Build latest
+        nix build --system ${{ matrix.system }}
