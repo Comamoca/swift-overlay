@@ -28,7 +28,7 @@ let
           pkgs.icu
           pkgs.curl
           pkgs.openssl
-          pkgs.libxml2.out  # libxml2 has bin as default output, libraries are in out
+          pkgs.libxml2.out
           pkgs.sqlite
           pkgs.ncurses
           pkgs.libedit
@@ -38,9 +38,6 @@ let
 
       autoPatchelfIgnoreMissing = true;
 
-      # Pre-install phase: create sysroot compatible CRT/LIB directories
-      # Swift's clang/LLD expects standard FHS paths like /lib, /usr/lib
-      # On NixOS these don't exist, so we provide them via the sysroot
       preFixupPhases = if pkgs.stdenv.isLinux then [ "linkSysroot" ] else [ ];
 
       linkSysroot = ''
@@ -48,56 +45,150 @@ let
         GCC_CRT="${pkgs.stdenv.cc.cc}/lib/gcc/*/*"
         GCC_LIB="${pkgs.stdenv.cc.cc.lib}/lib"
 
-        # Copy CRT files from glibc into $out/lib
         cp -L "$GLIBC_LIB"/crt1.o $out/lib/
         cp -L "$GLIBC_LIB"/crti.o $out/lib/
         cp -L "$GLIBC_LIB"/crtn.o $out/lib/
-        # Create Scrt1.o for PIE executable support
         ln -sf crt1.o $out/lib/Scrt1.o
 
-        # Copy GCC CRT and libgcc from GCC arch-specific directory
         for d in $GCC_CRT; do
           cp -L "$d"/crtbegin*.o $out/lib/ 2>/dev/null || true
           cp -L "$d"/crtend*.o $out/lib/ 2>/dev/null || true
           cp -L "$d"/libgcc*.a $out/lib/ 2>/dev/null || true
         done
 
-        # Copy libgcc_s from GCC lib output
         cp -L "$GCC_LIB"/libgcc* $out/lib/ 2>/dev/null || true
-
-        # Copy glibc libraries
-        cp -L "$GLIBC_LIB"/libc.* $out/lib/ 2>/dev/null || true
-        cp -L "$GLIBC_LIB"/libm.* $out/lib/ 2>/dev/null || true
-        cp -L "$GLIBC_LIB"/libdl.* $out/lib/ 2>/dev/null || true
-        cp -L "$GLIBC_LIB"/libpthread.* $out/lib/ 2>/dev/null || true
+        for lib in libc libm libdl libpthread librt libutil libcrypt libresolv; do
+          cp -L "$GLIBC_LIB"/$lib.* "$out/lib/" 2>/dev/null || true
+        done
       '';
 
       postFixup =
         if pkgs.stdenv.isLinux then ''
-          # Create compat symlinks for mismatched SONAMEs between Nixpkgs and Swift's Ubuntu base
-          ln -sf ${pkgs.libxml2.out}/lib/libxml2.so.16 $out/lib/libxml2.so.2 2>/dev/null || true
-          ln -sf ${pkgs.libedit}/lib/libedit.so.0 $out/lib/libedit.so.2 2>/dev/null || true
-
-          # Add $out/lib to RPATH for compat symlinks and Swift libraries
+          # Replace libxml2.so.2 dependency with libxml2.so.16 in all ELF files
           for f in $(find $out -type f -executable 2>/dev/null; find $out/lib -name "*.so*" -type f 2>/dev/null); do
+            patchelf --replace-needed libxml2.so.2 libxml2.so.16 "$f" 2>/dev/null || true
+          done
+          for f in $(find $out -type f -executable 2>/dev/null; find $out/lib -name "*.so*" -type f 2>/dev/null); do
+            patchelf --replace-needed libedit.so.2 libedit.so.0 "$f" 2>/dev/null || true
+          done
+
+          for f in $(find $out/lib -name "*.so*" -type f 2>/dev/null); do
             patchelf --add-rpath "$out/lib" "$f" 2>/dev/null || true
           done
 
-          # Create ld -> lld symlink for clang
           ln -sf lld $out/bin/ld 2>/dev/null || true
 
-          # Wrap swiftc with sysroot pointing to $out (contains CRT files)
+          # Create sysroot with glibc headers so clang can find system headers
+          GLIBC_DEV="${pkgs.glibc.dev}/include"
+          mkdir -p $out/usr/include
+          cp -rsf "$GLIBC_DEV/." "$out/usr/include/" 2>/dev/null || true
+
+          # Symlink glibc headers into SwiftGlibc module map directory
+          # so `textual header "assert.h"` is resolved correctly
+          SWIFT_ARCH_DIR="$out/lib/swift/linux/x86_64"
+          for hdr in assert.h ctype.h errno.h fcntl.h fenv.h float.h fnmatch.h \
+                     ftw.h glob.h grp.h iconv.h langinfo.h libgen.h locale.h \
+                     monetary.h nl_types.h poll.h pwd.h regex.h sched.h search.h \
+                     semaphore.h signal.h spawn.h stdio.h stdlib.h string.h \
+                     strings.h sysexits.h syslog.h tar.h termios.h time.h \
+                     unistd.h utime.h utmpx.h wordexp.h features.h complex.h \
+                     inttypes.h iso646.h limits.h stdarg.h stdbool.h stddef.h \
+                     stdint.h tgmath.h ulimit.h; do
+            [ -f "$GLIBC_DEV/$hdr" ] && ln -sf "$GLIBC_DEV/$hdr" "$SWIFT_ARCH_DIR/$hdr" 2>/dev/null || true
+          done
+          for sdir in sys net netinet arpa bits; do
+            [ -d "$GLIBC_DEV/$sdir" ] && ln -sfn "$GLIBC_DEV/$sdir" "$SWIFT_ARCH_DIR/$sdir" 2>/dev/null || true
+          done
+
+          # libc.so linker scripts from Nixpkgs contain absolute store paths.
+          # LLD with --sysroot will try to resolve these inside the sysroot.
+          # Replace with simple INPUT directives using relative paths.
+          if [ -f "$out/lib/libc.so" ]; then
+            # Extract just libc.so.6 from the GROUP and use INPUT directive
+            echo "INPUT(libc.so.6)" > "$out/lib/libc.so"
+          fi
+
           wrapProgram $out/bin/swiftc \
             --prefix PATH : $out/bin \
+            --set C_INCLUDE_PATH "${pkgs.glibc.dev}/include" \
             --add-flags "-Xcc" --add-flags "--sysroot=$out" \
+            --add-flags "-Xcc" --add-flags "-fmodule-map-file=$out/lib/swift/linux/x86_64/glibc.modulemap" \
             --add-flags "-Xlinker" --add-flags "-L$out/lib"
 
-          # Wrap swift for environment
           wrapProgram $out/bin/swift \
             --prefix PATH : $out/bin \
             --set SWIFT_CC "$out/bin/clang" \
             --set CC "$out/bin/clang" \
             --set CXX "$out/bin/clang++"
+
+          # Fix: -modulewrap flag + -entry-point-function-name flag
+          # The build system passes flags that swift-driver doesn't recognize
+          rm -f $out/bin/.swiftc-wrapped $out/bin/.swift-wrapped
+          for driver_link in .swiftc-wrapped .swift-wrapped; do
+            cat > $out/bin/$driver_link << DRVEOF
+#!/bin/bash
+# Determine driver mode from our own filename
+case "\$0" in
+  *.swiftc-wrapped) mode="swiftc" ;;
+  *)                mode="swift" ;;
+esac
+ARGS=()
+while [ \$# -gt 0 ]; do
+  case "\$1" in
+    -Xfrontend)
+      ARGS+=("\$1"); shift
+      ;;
+    -modulewrap)
+      # Forward directly to swift-frontend (driver doesn't support it)
+      REMAINING=()
+      shift
+      while [ \$# -gt 0 ]; do
+        REMAINING+=("\$1"); shift
+      done
+      exec $out/bin/swift-frontend -modulewrap "\''${REMAINING[@]}"
+      ;;
+    *)
+      ARGS+=("\$1"); shift
+      ;;
+  esac
+done
+exec -a "\$mode" $out/bin/swift-driver "\''${ARGS[@]}"
+DRVEOF
+            chmod +x $out/bin/$driver_link
+          done
+
+          # Create compat stub source for ELF version symbol shims
+          cat > $TMPDIR/compat_stub.c << 'COMPATEOF'
+int compat_stub = 0;
+COMPATEOF
+
+          # Keep libxml2.so.2 -> libxml2.so.16 mapping (cosmetic warning only)
+          # The "no version information available" warning is harmless.
+          for elf in $(find $out -type f -executable 2>/dev/null; find $out/lib -name "*.so*" -type f 2>/dev/null); do
+            patchelf --replace-needed libxml2.so.2 libxml2.so.16 "$elf" 2>/dev/null || true
+          done
+
+          # Compat: ncurses version symbols (NCURSES6_5.*)
+          # lldb requires NCURSES6 version symbols missing in Nixpkgs' ncurses
+          cat > $TMPDIR/ncurses_version.ver << NCRVER
+NCURSES6_5.0.19991023 { global: *; };
+NCURSES6_5.6.20061217 { global: *; };
+NCRVER
+          NCURSES_LIB="${pkgs.ncurses}/lib"
+          ${pkgs.stdenv.cc.targetPrefix}gcc -shared -fPIC -o $out/lib/libncurses_compat.so \
+            $TMPDIR/compat_stub.c \
+            -Wl,--version-script=$TMPDIR/ncurses_version.ver \
+            -L$NCURSES_LIB -lncurses -lpanel 2>/dev/null || true
+          # Replace ncurses/panel deps with compat lib
+          for elf in $(find $out -type f -executable 2>/dev/null; find $out/lib -name "*.so*" -type f 2>/dev/null); do
+            patchelf --replace-needed libncurses.so.6 libncurses_compat.so "$elf" 2>/dev/null || true
+            patchelf --replace-needed libpanel.so.6 libncurses_compat.so "$elf" 2>/dev/null || true
+          done
+
+          # Add RPATH to all ELF files so compat libs are found
+          for elf in $(find $out -type f -executable 2>/dev/null; find $out/lib -name "*.so*" -type f 2>/dev/null); do
+            patchelf --add-rpath "$out/lib" "$elf" 2>/dev/null || true
+          done
         '' else "";
 
       unpackPhase =
@@ -136,7 +227,6 @@ let
 
       installPhase = ''
         runHook preInstall
-
         mkdir -p $out
         if [ -d "$TMPDIR/swift-out" ]; then
           cp -r $TMPDIR/swift-out/* $out/
@@ -144,11 +234,11 @@ let
           echo "Warning: swift-out not found, copying current directory"
           cp -r ./* $out/ 2>/dev/null || true
         fi
-
         find $out/bin -type f -exec chmod +x {} \; 2>/dev/null || true
-
         runHook postInstall
       '';
+
+      dontStrip = true;
 
       meta = with pkgs.lib; {
         description = "A general-purpose programming language for building modern software";
