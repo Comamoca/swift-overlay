@@ -64,27 +64,14 @@ let
 
       postFixup =
         if pkgs.stdenv.isLinux then ''
-          # Replace libxml2.so.2 dependency with libxml2.so.16 in all ELF files
-          for f in $(find $out -type f -executable 2>/dev/null; find $out/lib -name "*.so*" -type f 2>/dev/null); do
-            patchelf --replace-needed libxml2.so.2 libxml2.so.16 "$f" 2>/dev/null || true
-          done
-          for f in $(find $out -type f -executable 2>/dev/null; find $out/lib -name "*.so*" -type f 2>/dev/null); do
-            patchelf --replace-needed libedit.so.2 libedit.so.0 "$f" 2>/dev/null || true
-          done
-
-          for f in $(find $out/lib -name "*.so*" -type f 2>/dev/null); do
-            patchelf --add-rpath "$out/lib" "$f" 2>/dev/null || true
-          done
-
           ln -sf lld $out/bin/ld 2>/dev/null || true
 
-          # Create sysroot with glibc headers so clang can find system headers
+          # Create sysroot with glibc headers for CDispatch <sys/param.h> resolution
           GLIBC_DEV="${pkgs.glibc.dev}/include"
           mkdir -p $out/usr/include
           cp -rsf "$GLIBC_DEV/." "$out/usr/include/" 2>/dev/null || true
 
           # Symlink glibc headers into SwiftGlibc module map directory
-          # so `textual header "assert.h"` is resolved correctly
           SWIFT_ARCH_DIR="$out/lib/swift/linux/x86_64"
           for hdr in assert.h ctype.h errno.h fcntl.h fenv.h float.h fnmatch.h \
                      ftw.h glob.h grp.h iconv.h langinfo.h libgen.h locale.h \
@@ -100,17 +87,13 @@ let
             [ -d "$GLIBC_DEV/$sdir" ] && ln -sfn "$GLIBC_DEV/$sdir" "$SWIFT_ARCH_DIR/$sdir" 2>/dev/null || true
           done
 
-          # libc.so linker scripts from Nixpkgs contain absolute store paths.
-          # LLD with --sysroot will try to resolve these inside the sysroot.
-          # Replace with simple INPUT directives using relative paths.
+          # libc.so: replace absolute Nix store paths with simple INPUT for LLD --sysroot compat
           if [ -f "$out/lib/libc.so" ]; then
-            # Extract just libc.so.6 from the GROUP and use INPUT directive
             echo "INPUT(libc.so.6)" > "$out/lib/libc.so"
           fi
 
           wrapProgram $out/bin/swiftc \
             --prefix PATH : $out/bin \
-            --set C_INCLUDE_PATH "${pkgs.glibc.dev}/include" \
             --add-flags "-Xcc" --add-flags "--sysroot=$out" \
             --add-flags "-Xcc" --add-flags "-fmodule-map-file=$out/lib/swift/linux/x86_64/glibc.modulemap" \
             --add-flags "-Xlinker" --add-flags "-L$out/lib"
@@ -121,35 +104,21 @@ let
             --set CC "$out/bin/clang" \
             --set CXX "$out/bin/clang++"
 
-          # Fix: -modulewrap flag + -entry-point-function-name flag
-          # The build system passes flags that swift-driver doesn't recognize
+          # Fix: -modulewrap flag (swift-driver doesn't support it)
           rm -f $out/bin/.swiftc-wrapped $out/bin/.swift-wrapped
           for driver_link in .swiftc-wrapped .swift-wrapped; do
             cat > $out/bin/$driver_link << DRVEOF
 #!/bin/bash
-# Determine driver mode from our own filename
-case "\$0" in
-  *.swiftc-wrapped) mode="swiftc" ;;
-  *)                mode="swift" ;;
-esac
+case "\$0" in *.swiftc-wrapped) mode="swiftc" ;; *) mode="swift" ;; esac
 ARGS=()
 while [ \$# -gt 0 ]; do
   case "\$1" in
-    -Xfrontend)
-      ARGS+=("\$1"); shift
-      ;;
+    -Xfrontend) ARGS+=("\$1"); shift ;;
     -modulewrap)
-      # Forward directly to swift-frontend (driver doesn't support it)
-      REMAINING=()
-      shift
-      while [ \$# -gt 0 ]; do
-        REMAINING+=("\$1"); shift
-      done
-      exec $out/bin/swift-frontend -modulewrap "\''${REMAINING[@]}"
-      ;;
-    *)
-      ARGS+=("\$1"); shift
-      ;;
+      REMAINING=(); shift
+      while [ \$# -gt 0 ]; do REMAINING+=("\$1"); shift; done
+      exec $out/bin/swift-frontend -modulewrap "\''${REMAINING[@]}";;
+    *) ARGS+=("\$1"); shift ;;
   esac
 done
 exec -a "\$mode" $out/bin/swift-driver "\''${ARGS[@]}"
@@ -157,19 +126,19 @@ DRVEOF
             chmod +x $out/bin/$driver_link
           done
 
-          # Create compat stub source for ELF version symbol shims
+          # Create compat stub for ELF version symbol shims
           cat > $TMPDIR/compat_stub.c << 'COMPATEOF'
 int compat_stub = 0;
 COMPATEOF
 
-          # Keep libxml2.so.2 -> libxml2.so.16 mapping (cosmetic warning only)
-          # The "no version information available" warning is harmless.
+          # SONAME compat: libxml2 (swift expects .so.2, nixpkgs has .so.16)
+          # This warning is cosmetic (no functional impact).
           for elf in $(find $out -type f -executable 2>/dev/null; find $out/lib -name "*.so*" -type f 2>/dev/null); do
             patchelf --replace-needed libxml2.so.2 libxml2.so.16 "$elf" 2>/dev/null || true
+            patchelf --replace-needed libedit.so.2 libedit.so.0 "$elf" 2>/dev/null || true
           done
 
-          # Compat: ncurses version symbols (NCURSES6_5.*)
-          # lldb requires NCURSES6 version symbols missing in Nixpkgs' ncurses
+          # Compat: ncurses version symbols for lldb
           cat > $TMPDIR/ncurses_version.ver << NCRVER
 NCURSES6_5.0.19991023 { global: *; };
 NCURSES6_5.6.20061217 { global: *; };
@@ -179,13 +148,12 @@ NCRVER
             $TMPDIR/compat_stub.c \
             -Wl,--version-script=$TMPDIR/ncurses_version.ver \
             -L$NCURSES_LIB -lncurses -lpanel 2>/dev/null || true
-          # Replace ncurses/panel deps with compat lib
           for elf in $(find $out -type f -executable 2>/dev/null; find $out/lib -name "*.so*" -type f 2>/dev/null); do
             patchelf --replace-needed libncurses.so.6 libncurses_compat.so "$elf" 2>/dev/null || true
             patchelf --replace-needed libpanel.so.6 libncurses_compat.so "$elf" 2>/dev/null || true
           done
 
-          # Add RPATH to all ELF files so compat libs are found
+          # Add RPATH so compat libs are found
           for elf in $(find $out -type f -executable 2>/dev/null; find $out/lib -name "*.so*" -type f 2>/dev/null); do
             patchelf --add-rpath "$out/lib" "$elf" 2>/dev/null || true
           done
