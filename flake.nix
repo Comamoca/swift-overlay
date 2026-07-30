@@ -31,7 +31,6 @@
           default = pkgs.mkShell {
             packages = with pkgs; [
               nil
-              python312Packages.python-lsp-server
             ];
             shellHook = '''';
           };
