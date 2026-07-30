@@ -4,6 +4,8 @@
 let
   hashes = pkgs.lib.importJSON ./swift_hashes.json;
 
+
+
   mkSwiftBinary =
     version: archData:
     pkgs.stdenv.mkDerivation rec {
@@ -131,12 +133,15 @@ DRVEOF
 int compat_stub = 0;
 COMPATEOF
 
-          # SONAME compat: libxml2 (swift expects .so.2, nixpkgs has .so.16)
-          # This warning is cosmetic (no functional impact).
+          # SONAME compat: translate old SONAMEs to current Nixpkgs SONAMEs
           for elf in $(find $out -type f -executable 2>/dev/null; find $out/lib -name "*.so*" -type f 2>/dev/null); do
             patchelf --replace-needed libxml2.so.2 libxml2.so.16 "$elf" 2>/dev/null || true
             patchelf --replace-needed libedit.so.2 libedit.so.0 "$elf" 2>/dev/null || true
           done
+
+          # libxml2: "no version information available" warning is cosmetic.
+          # To fully fix it, libxml2 would need to be rebuilt from source
+          # with a version script (too heavy for this overlay).
 
           # Compat: ncurses version symbols for lldb
           cat > $TMPDIR/ncurses_version.ver << NCRVER
