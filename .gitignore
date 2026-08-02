@@ -1,3 +1,11 @@
 .devenv/
 .direnv/
+.omo/
+.opencode/
 result
+result-qa
+
+# uv / Python tooling
+.venv/
+__pycache__/
+uv.lock
