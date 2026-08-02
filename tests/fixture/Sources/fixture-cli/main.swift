@@ -1,0 +1,3 @@
+import FixtureLib
+
+print(fixtureGreeting())
