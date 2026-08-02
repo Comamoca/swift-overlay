@@ -15,10 +15,10 @@ A Nix overlay providing [Swift](https://swift.org/) toolchains for multiple vers
 ## ✨ Features
 
 - 🚀 Latest Swift releases with automatic updates
-- 🏗️ Multiple architecture support (x86_64/aarch64 Linux/macOS)
+- 🏗️ Multiple architecture support (x86_64/aarch64 Linux, aarch64 macOS)
 - 📦 Easy integration with Nix flakes and traditional overlays
 - 🔄 Binary distributions for faster installation
-- 🔧 NixOS-compatible via autoPatchelfHook
+- 🔧 NixOS-compatible via buildFHSEnv (FHS-wrapped UBI9 toolchain on Linux)
 
 ## 🚀 Usage
 
@@ -39,7 +39,6 @@ Add this overlay to your flake inputs:
       systems = [
         "aarch64-darwin"
         "aarch64-linux"
-        "x86_64-darwin"
         "x86_64-linux"
       ];
 
@@ -113,6 +112,26 @@ nix develop
 direnv allow
 ```
 
+### How it works
+
+- Linux: the official Swift UBI9 (Red Hat Universal Base Image 9) tarball is
+  fetched and placed into a `buildFHSEnv` environment. This gives the bundled
+  Clang and linker the `/usr/include`, `/usr/lib` and `/usr/lib64` layout they
+  expect, so the previous `autoPatchelfHook` + sysroot/SONAME workarounds are no
+  longer needed. Every executable in the toolchain is wrapped to run inside the
+  FHS namespace, so `swiftpm` can spawn `swiftc`, `swift-frontend`, `clang` and
+  `lld` by absolute path and still find the right libraries.
+- macOS: the `.pkg` toolchain is still extracted with `xar` + `cpio` and used
+  directly.
+
+### Quality Assurance
+
+```sh
+# Run the host-side QA suite (this is not a flake check because
+# bubblewrap cannot create user namespaces inside the nix build sandbox).
+scripts/qa.sh
+```
+
 ### Updating Releases
 
 ```sh
@@ -128,8 +147,8 @@ This will update `swift_hashes.json` with the latest Swift releases and their ch
 # Build the latest version
 nix build
 
-# Build and test
-nix flake check
+# Show flake metadata
+nix flake show
 ```
 
 ## 📜 License
