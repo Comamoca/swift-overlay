@@ -1,14 +1,155 @@
 {
   pkgs ? import <nixpkgs> { },
+  # Python 3.9 is required by the UBI9 lldb/repl binary on Linux. It is not
+  # available in nixos-unstable, so the flake pins an older nixpkgs and
+  # passes it here. On Darwin this is ignored.
+  python39 ? null,
 }:
 let
-  hashes = pkgs.lib.importJSON ./swift_hashes.json;
+  lib = pkgs.lib;
+  stdenv = pkgs.stdenv;
+  hashes = lib.importJSON ./swift_hashes.json;
 
+  getCurrentArch =
+    if stdenv.isDarwin then
+      "aarch64-darwin"
+    else if stdenv.isLinux then
+      if stdenv.isAarch64 then "aarch64-linux" else "x86_64-linux"
+    else
+      throw "Unsupported platform";
 
-
-  mkSwiftBinary =
+  # ---------------------------------------------------------------------------
+  # Linux: UBI9 tarball + buildFHSEnv.
+  #
+  # Layout contract (nixpkgs pkgs/build-support/build-fhsenv-bubblewrap/
+  # rootfs-builder/src/main.rs, remap_native_path/remap_multilib_path):
+  # only package-relative bin/, sbin/, libexec/, lib/, etc/, opt/, share/,
+  # include/ are mapped into the FHS root (lib/ -> /usr/lib64, include/ ->
+  # /usr/include, bin/ -> /usr/bin). Anything under a package's usr/ prefix is
+  # SILENTLY DROPPED. So the tarball's usr/ prefix must be stripped here:
+  # $out/bin, $out/lib, ... This preserves the toolchain's internal relative
+  # layout (the swift driver finds ../lib/swift relative to the executable),
+  # and $ORIGIN/../lib RPATHs keep resolving via the real store path.
+  #
+  # No autoPatchelf / patchelf / sysroot farming: the FHS env provides
+  # /lib64/ld-linux, glibc headers at /usr/include (via glibc.dev), and the
+  # runtime libraries at the sonames the UBI9 build was linked against.
+  # ---------------------------------------------------------------------------
+  mkSwiftLinux =
     version: archData:
-    pkgs.stdenv.mkDerivation rec {
+    let
+      unwrapped = stdenv.mkDerivation {
+        pname = "swift-unwrapped";
+        inherit version;
+
+        src = pkgs.fetchurl {
+          url = archData.url;
+          sha256 = archData.sha256;
+        };
+
+        # Tarball extracts to a single top-level dir
+        # (swift-<ver>-RELEASE-ubi9[-aarch64]/) containing usr/{bin,lib,...}.
+        # The default unpackPhase already cd's into that source root, so the
+        # relative `usr/` prefix is stripped here: $out/bin, $out/lib, ...
+        installPhase = ''
+          runHook preInstall
+          mkdir -p $out
+          cp -r usr/. $out/
+          find $out/bin -type f -exec chmod +x {} +
+          runHook postInstall
+        '';
+
+        # Keep stdenv fixup (strip, patchShebangs) away from the prebuilt
+        # toolchain; the FHS env supplies /usr/bin interpreters and libraries.
+        dontFixup = true;
+      };
+
+      fhs = pkgs.buildFHSEnv {
+        pname = "swift-fhs";
+        inherit version;
+
+        # Runtime deps of the UBI9 build (apple/swift-docker rhel-ubi/9
+        # Dockerfile: git gcc-c++ libcurl libedit libuuid libxml2 ncurses
+        # python3 sqlite; plus libcrypt.so.1 via libxcrypt-compat).
+        targetPkgs =
+          p:
+          [
+            unwrapped
+
+            p.glibc
+            p.glibc.dev # headers land at /usr/include; must be listed explicitly
+            p.gcc-unwrapped
+            p.gcc-unwrapped.lib # libstdc++.so.6, libgcc_s.so.1
+            p.binutils # as/ld (no .lib output exists — do not reference one)
+            p.zlib
+            p.ncurses # UBI9 ncurses 6.2 -> libncurses.so.6/libtinfo.so.6
+            p.libxml2_13 # REQUIRED: provides libxml2.so.2; default libxml2 is 2.15 (soname .so.16)
+            p.sqlite
+            p.libuuid # alias of util-linuxMinimal; null on darwin — linux-only here
+            p.icu
+            p.libedit # libedit.so.0; lldb wants UBI9's libedit.so.2 (advisory)
+            p.curl
+            p.libxcrypt-legacy # libcrypt.so.1; plain libxcrypt is .so.2 (wrong)
+            p.python3
+            p.tzdata # Foundation TimeZone(identifier:)
+            p.gitMinimal # SwiftPM package resolution
+          ]
+          ++ lib.optionals (python39 != null) [ python39 ]; # lldb/repl on Linux
+
+        profile = ''
+          export LD_LIBRARY_PATH=/usr/lib64:/usr/lib
+        '';
+
+        # steam-run style dispatcher: the per-tool wrappers below pass
+        # /usr/bin/<tool> as $1; SwiftPM children stay inside the namespace.
+        runScript = pkgs.writeShellScript "swift-dispatch" ''
+          exec "$@"
+        '';
+
+        # These are the buildFHSEnv defaults; stated explicitly for clarity.
+        unshareUser = false;
+        unshareIpc = false;
+        unsharePid = false;
+        unshareNet = false;
+        unshareUts = false;
+        unshareCgroup = false;
+        extraBwrapArgs = [ ];
+      };
+    in
+    pkgs.runCommand "swift-${version}"
+      {
+        passthru = {
+          inherit unwrapped fhs;
+        };
+        meta = with lib; {
+          description = "A general-purpose programming language for building modern software";
+          homepage = "https://swift.org";
+          license = licenses.asl20;
+          mainProgram = "swift";
+          platforms = [
+            "x86_64-linux"
+            "aarch64-linux"
+          ];
+        };
+      }
+      ''
+        mkdir -p $out/bin
+        for f in ${unwrapped}/bin/*; do
+          n="$(basename "$f")"
+          cat > "$out/bin/$n" <<WRAPPER
+#!${pkgs.runtimeShell}
+exec ${fhs}/bin/swift-fhs /usr/bin/$n "\$@"
+WRAPPER
+          chmod +x "$out/bin/$n"
+        done
+      '';
+
+  # ---------------------------------------------------------------------------
+  # Darwin: unchanged (xar/cpio extraction of the .pkg toolchain).
+  # ---------------------------------------------------------------------------
+  mkSwiftDarwin =
+    version: archData:
+    stdenv.mkDerivation {
       pname = "swift";
       inherit version;
 
@@ -17,186 +158,27 @@ let
         sha256 = archData.sha256;
       };
 
-      nativeBuildInputs =
-        if pkgs.stdenv.isLinux then [ pkgs.autoPatchelfHook pkgs.makeWrapper ]
-        else if pkgs.stdenv.isDarwin then [ pkgs.xar pkgs.cpio ]
-        else [ ];
+      nativeBuildInputs = [
+        pkgs.xar
+        pkgs.cpio
+      ];
 
-      buildInputs =
-        if pkgs.stdenv.isLinux then [
-          pkgs.stdenv.cc.cc
-          pkgs.glibc
-          pkgs.zlib
-          pkgs.icu
-          pkgs.curl
-          pkgs.openssl
-          pkgs.libxml2.out
-          pkgs.sqlite
-          pkgs.ncurses
-          pkgs.libedit
-          pkgs.libuuid
-          pkgs.python312
-        ] else [ ];
-
-      autoPatchelfIgnoreMissing = true;
-
-      preFixupPhases = if pkgs.stdenv.isLinux then [ "linkSysroot" ] else [ ];
-
-      linkSysroot = ''
-        GLIBC_LIB="${pkgs.glibc.out}/lib"
-        GCC_CRT="${pkgs.stdenv.cc.cc}/lib/gcc/*/*"
-        GCC_LIB="${pkgs.stdenv.cc.cc.lib}/lib"
-
-        cp -L "$GLIBC_LIB"/crt1.o $out/lib/
-        cp -L "$GLIBC_LIB"/crti.o $out/lib/
-        cp -L "$GLIBC_LIB"/crtn.o $out/lib/
-        ln -sf crt1.o $out/lib/Scrt1.o
-
-        for d in $GCC_CRT; do
-          cp -L "$d"/crtbegin*.o $out/lib/ 2>/dev/null || true
-          cp -L "$d"/crtend*.o $out/lib/ 2>/dev/null || true
-          cp -L "$d"/libgcc*.a $out/lib/ 2>/dev/null || true
-        done
-
-        cp -L "$GCC_LIB"/libgcc* $out/lib/ 2>/dev/null || true
-        for lib in libc libm libdl libpthread librt libutil libcrypt libresolv; do
-          cp -L "$GLIBC_LIB"/$lib.* "$out/lib/" 2>/dev/null || true
-        done
-      '';
-
-      postFixup =
-        if pkgs.stdenv.isLinux then ''
-          ln -sf lld $out/bin/ld 2>/dev/null || true
-
-          # Create sysroot with glibc headers for CDispatch <sys/param.h> resolution
-          GLIBC_DEV="${pkgs.glibc.dev}/include"
-          mkdir -p $out/usr/include
-          cp -rsf "$GLIBC_DEV/." "$out/usr/include/" 2>/dev/null || true
-
-          # Symlink glibc headers into SwiftGlibc module map directory
-          SWIFT_ARCH_DIR="$out/lib/swift/linux/x86_64"
-          for hdr in assert.h ctype.h errno.h fcntl.h fenv.h float.h fnmatch.h \
-                     ftw.h glob.h grp.h iconv.h langinfo.h libgen.h locale.h \
-                     monetary.h nl_types.h poll.h pwd.h regex.h sched.h search.h \
-                     semaphore.h signal.h spawn.h stdio.h stdlib.h string.h \
-                     strings.h sysexits.h syslog.h tar.h termios.h time.h \
-                     unistd.h utime.h utmpx.h wordexp.h features.h complex.h \
-                     inttypes.h iso646.h limits.h stdarg.h stdbool.h stddef.h \
-                     stdint.h tgmath.h ulimit.h; do
-            [ -f "$GLIBC_DEV/$hdr" ] && ln -sf "$GLIBC_DEV/$hdr" "$SWIFT_ARCH_DIR/$hdr" 2>/dev/null || true
-          done
-          for sdir in sys net netinet arpa bits; do
-            [ -d "$GLIBC_DEV/$sdir" ] && ln -sfn "$GLIBC_DEV/$sdir" "$SWIFT_ARCH_DIR/$sdir" 2>/dev/null || true
-          done
-
-          # libc.so: replace absolute Nix store paths with simple INPUT for LLD --sysroot compat
-          if [ -f "$out/lib/libc.so" ]; then
-            echo "INPUT(libc.so.6)" > "$out/lib/libc.so"
-          fi
-
-          wrapProgram $out/bin/swiftc \
-            --prefix PATH : $out/bin \
-            --add-flags "-Xcc" --add-flags "--sysroot=$out" \
-            --add-flags "-Xcc" --add-flags "-fmodule-map-file=$out/lib/swift/linux/x86_64/glibc.modulemap" \
-            --add-flags "-Xlinker" --add-flags "-L$out/lib"
-
-          wrapProgram $out/bin/swift \
-            --prefix PATH : $out/bin \
-            --set SWIFT_CC "$out/bin/clang" \
-            --set CC "$out/bin/clang" \
-            --set CXX "$out/bin/clang++"
-
-          # Fix: -modulewrap flag (swift-driver doesn't support it)
-          rm -f $out/bin/.swiftc-wrapped $out/bin/.swift-wrapped
-          for driver_link in .swiftc-wrapped .swift-wrapped; do
-            cat > $out/bin/$driver_link << DRVEOF
-#!/bin/bash
-case "\$0" in *.swiftc-wrapped) mode="swiftc" ;; *) mode="swift" ;; esac
-ARGS=()
-while [ \$# -gt 0 ]; do
-  case "\$1" in
-    -Xfrontend) ARGS+=("\$1"); shift ;;
-    -modulewrap)
-      REMAINING=(); shift
-      while [ \$# -gt 0 ]; do REMAINING+=("\$1"); shift; done
-      exec $out/bin/swift-frontend -modulewrap "\''${REMAINING[@]}";;
-    *) ARGS+=("\$1"); shift ;;
-  esac
-done
-exec -a "\$mode" $out/bin/swift-driver "\''${ARGS[@]}"
-DRVEOF
-            chmod +x $out/bin/$driver_link
-          done
-
-          # Create compat stub for ELF version symbol shims
-          cat > $TMPDIR/compat_stub.c << 'COMPATEOF'
-int compat_stub = 0;
-COMPATEOF
-
-          # SONAME compat: translate old SONAMEs to current Nixpkgs SONAMEs
-          for elf in $(find $out -type f -executable 2>/dev/null; find $out/lib -name "*.so*" -type f 2>/dev/null); do
-            patchelf --replace-needed libxml2.so.2 libxml2.so.16 "$elf" 2>/dev/null || true
-            patchelf --replace-needed libedit.so.2 libedit.so.0 "$elf" 2>/dev/null || true
-          done
-
-          # libxml2: "no version information available" warning is cosmetic.
-          # To fully fix it, libxml2 would need to be rebuilt from source
-          # with a version script (too heavy for this overlay).
-
-          # Compat: ncurses version symbols for lldb
-          cat > $TMPDIR/ncurses_version.ver << NCRVER
-NCURSES6_5.0.19991023 { global: *; };
-NCURSES6_5.6.20061217 { global: *; };
-NCRVER
-          NCURSES_LIB="${pkgs.ncurses}/lib"
-          ${pkgs.stdenv.cc.targetPrefix}gcc -shared -fPIC -o $out/lib/libncurses_compat.so \
-            $TMPDIR/compat_stub.c \
-            -Wl,--version-script=$TMPDIR/ncurses_version.ver \
-            -L$NCURSES_LIB -lncurses -lpanel 2>/dev/null || true
-          for elf in $(find $out -type f -executable 2>/dev/null; find $out/lib -name "*.so*" -type f 2>/dev/null); do
-            patchelf --replace-needed libncurses.so.6 libncurses_compat.so "$elf" 2>/dev/null || true
-            patchelf --replace-needed libpanel.so.6 libncurses_compat.so "$elf" 2>/dev/null || true
-          done
-
-          # Add RPATH so compat libs are found
-          for elf in $(find $out -type f -executable 2>/dev/null; find $out/lib -name "*.so*" -type f 2>/dev/null); do
-            patchelf --add-rpath "$out/lib" "$elf" 2>/dev/null || true
-          done
-        '' else "";
-
-      unpackPhase =
-        if pkgs.stdenv.isDarwin then
-          ''
-            mkdir -p $TMPDIR/extract
-            xar -xf $src -C $TMPDIR/extract
-            cd $TMPDIR/extract
-            mkdir -p $TMPDIR/payload
-            cd $TMPDIR/payload
-            cpio -id < $TMPDIR/extract/Payload 2>/dev/null || true
-            TOOLCHAIN_DIR=$(ls -d Library/Developer/Toolchains/*.xctoolchain 2>/dev/null | head -1)
-            if [ -n "$TOOLCHAIN_DIR" ]; then
-              mkdir -p $TMPDIR/swift-out
-              cp -r "$TOOLCHAIN_DIR/usr/"* $TMPDIR/swift-out/
-            else
-              echo "Warning: No .xctoolchain directory found"
-              ls -la Library/Developer/ 2>/dev/null || echo "No Library/Developer found"
-            fi
-          ''
+      unpackPhase = ''
+        mkdir -p $TMPDIR/extract
+        xar -xf $src -C $TMPDIR/extract
+        cd $TMPDIR/extract
+        mkdir -p $TMPDIR/payload
+        cd $TMPDIR/payload
+        cpio -id < $TMPDIR/extract/Payload 2>/dev/null || true
+        TOOLCHAIN_DIR=$(ls -d Library/Developer/Toolchains/*.xctoolchain 2>/dev/null | head -1)
+        if [ -n "$TOOLCHAIN_DIR" ]; then
+          mkdir -p $TMPDIR/swift-out
+          cp -r "$TOOLCHAIN_DIR/usr/"* $TMPDIR/swift-out/
         else
-          ''
-            tar -xf $src
-            SWIFT_DIR=$(ls -d */usr 2>/dev/null | head -1)
-            if [ -n "$SWIFT_DIR" ]; then
-              mkdir -p $TMPDIR/swift-out
-              cp -r "$SWIFT_DIR/"* $TMPDIR/swift-out/
-            else
-              ALT_DIR=$(ls -d swift-*/usr 2>/dev/null | head -1)
-              if [ -n "$ALT_DIR" ]; then
-                mkdir -p $TMPDIR/swift-out
-                cp -r "$ALT_DIR/"* $TMPDIR/swift-out/
-              fi
-            fi
-          '';
+          echo "Warning: No .xctoolchain directory found"
+          ls -la Library/Developer/ 2>/dev/null || echo "No Library/Developer found"
+        fi
+      '';
 
       installPhase = ''
         runHook preInstall
@@ -213,27 +195,23 @@ NCRVER
 
       dontStrip = true;
 
-      meta = with pkgs.lib; {
+      meta = with lib; {
         description = "A general-purpose programming language for building modern software";
         homepage = "https://swift.org";
         license = licenses.asl20;
         mainProgram = "swift";
-        platforms = [
-          "x86_64-linux"
-          "aarch64-linux"
-          "x86_64-darwin"
-          "aarch64-darwin"
-        ];
+          platforms = [
+            "aarch64-darwin"
+          ];
       };
     };
 
-  getCurrentArch =
-    if pkgs.stdenv.isDarwin then
-      if pkgs.stdenv.isAarch64 then "aarch64-darwin" else "x86_64-darwin"
-    else if pkgs.stdenv.isLinux then
-      if pkgs.stdenv.isAarch64 then "aarch64-linux" else "x86_64-linux"
+  mkSwift =
+    version: archData:
+    if stdenv.isDarwin then
+      mkSwiftDarwin version archData
     else
-      throw "Unsupported platform";
+      mkSwiftLinux version archData;
 
   swiftVersions = builtins.mapAttrs (
     version: platforms:
@@ -241,7 +219,7 @@ NCRVER
       currentArch = getCurrentArch;
     in
     if builtins.hasAttr currentArch platforms then
-      mkSwiftBinary version platforms.${currentArch}
+      mkSwift version platforms.${currentArch}
     else
       throw "Architecture ${currentArch} not supported for Swift version ${version}"
   ) (builtins.removeAttrs hashes [ "latest" ]);
@@ -259,7 +237,7 @@ rec {
         latestPlatforms = hashes.${latestVersion};
       in
       if builtins.hasAttr currentArch latestPlatforms then
-        mkSwiftBinary latestVersion latestPlatforms.${currentArch}
+        mkSwift latestVersion latestPlatforms.${currentArch}
       else
         throw "Architecture ${currentArch} not supported for latest Swift version ${latestVersion}";
   } // swiftVersions;

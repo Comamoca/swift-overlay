@@ -12,7 +12,7 @@ import json
 import re
 import subprocess
 import sys
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import requests
 
@@ -75,9 +75,13 @@ def construct_url(version: str, platform_code: str, arch: str = "x86_64") -> str
     """
     Construct Swift binary download URL.
 
+    Layout (verified against apple/swift-docker rhel-ubi/9 Dockerfile):
+      {webroot}/{branch}/{platform}{arch_suffix}/{tag}/{tag}-{platform}{arch_suffix}.tar.gz
+    For Linux, platform is "ubi9"; arch_suffix is "" (x86_64) or "-aarch64".
+
     Args:
         version: Swift version (e.g. "6.3.3")
-        platform_code: Platform code (e.g. "ubuntu2204", "ubuntu2404")
+        platform_code: Platform code (e.g. "ubi9")
         arch: Architecture ("x86_64" or "aarch64")
 
     Returns:
@@ -86,21 +90,11 @@ def construct_url(version: str, platform_code: str, arch: str = "x86_64") -> str
     release_tag = f"swift-{version}-RELEASE"
     arch_suffix = "-aarch64" if arch == "aarch64" else ""
 
-    # Platform name for filename (ubuntu22.04 vs ubuntu2204)
-    platform_name_map = {
-        "ubuntu2204": "ubuntu22.04",
-        "ubuntu2404": "ubuntu24.04",
-    }
-
-    dir_platform = platform_code
-    file_platform = platform_name_map.get(platform_code, platform_code)
-    arch_file_suffix = "-aarch64" if arch == "aarch64" else ""
-
     return (
         f"https://download.swift.org/{release_tag.lower()}/"
-        f"{dir_platform}{arch_suffix}/"
+        f"{platform_code}{arch_suffix}/"
         f"{release_tag}/"
-        f"{release_tag}-{file_platform}{arch_file_suffix}.tar.gz"
+        f"{release_tag}-{platform_code}{arch_suffix}.tar.gz"
     )
 
 
@@ -114,7 +108,7 @@ def fetch_dev_snapshots(branch: str) -> Dict[str, Dict[str, str]]:
     Returns:
         Dict mapping architecture to {url, sha256}
     """
-    platforms = ["ubuntu2204", "ubuntu2404"]
+    platforms = ["ubi9"]
     assets = {}
 
     headers = {"User-Agent": "swift-overlay-fetch-script/1.0"}
@@ -155,10 +149,8 @@ def main():
 
         # Platforms to check
         linux_platforms = [
-            ("ubuntu2204", "x86_64"),
-            ("ubuntu2204", "aarch64"),
-            ("ubuntu2404", "x86_64"),
-            ("ubuntu2404", "aarch64"),
+            ("ubi9", "x86_64"),
+            ("ubi9", "aarch64"),
         ]
 
         darwin_url = (
@@ -210,17 +202,16 @@ def main():
                 )
                 if resp.status_code == 200:
                     sha256_hash = get_sha256_hash(url)
-                    version_assets["x86_64-darwin"] = {
-                        "url": url,
-                        "sha256": sha256_hash,
-                    }
+                    # The official -osx.pkg is a universal binary, but we only
+                    # expose aarch64-darwin because nixpkgs 26.11+ no longer
+                    # supports x86_64-darwin.
                     version_assets["aarch64-darwin"] = {
                         "url": url,
                         "sha256": sha256_hash,
                     }
-                    print(f"  darwin: OK (universal)")
+                    print("  darwin: OK (aarch64 only)")
                 else:
-                    print(f"  darwin: Not found")
+                    print("  darwin: Not found")
             except Exception as e:
                 print(f"  darwin: Error - {e}")
 
