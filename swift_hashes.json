@@ -1,16 +1,1 @@
-{
-  "6.3.3": {
-    "x86_64-linux": {
-      "url": "https://download.swift.org/swift-6.3.3-release/ubi9/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE-ubi9.tar.gz",
-      "sha256": "sha256-i6WvU1EOouIk2BS5xWiCXoeQQyi0qMHXOy96x/yJJAY="
-    },
-    "aarch64-linux": {
-      "url": "https://download.swift.org/swift-6.3.3-release/ubi9-aarch64/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE-ubi9-aarch64.tar.gz",
-      "sha256": "sha256-Ym9S63nycwWl58Lf9oIRLvL4HAuoOA/Z33wVWVM7Efc="
-    },
-    "aarch64-darwin": {
-      "url": "https://download.swift.org/swift-6.3.3-release/xcode/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE-osx.pkg",
-      "sha256": "sha256-7oLld3TWZQ+UqgYwJDXW9EoFW5QRaY247LhdmjvMkdA="
-    }
-  }
-}
+{}
