@@ -2,6 +2,8 @@
 .direnv/
 .omo/
 .opencode/
+.env
+.env.*
 result
 result-qa
 
