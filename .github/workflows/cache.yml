@@ -41,8 +41,8 @@ jobs:
 
         # Build each version for the current system
         for version in $VERSIONS; do
-          nix build --system ${{ matrix.system }}
+          nix build --system ${{ matrix.system }} ".#bin.$version"
         done
 
         # Build latest
-        nix build --system ${{ matrix.system }}
+        nix build --system ${{ matrix.system }} ".#default"

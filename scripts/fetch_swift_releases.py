@@ -3,18 +3,31 @@
 Fetch Swift releases from swift.org and compute SHA256 hashes.
 
 This script:
-1. Fetches stable release info from swift.org/download/
+1. Fetches stable release info from the swift.org releases API
 2. Constructs download URLs for each platform
 3. Computes SHA256 hashes using `nix store prefetch-file`
 4. Writes swift_hashes.json
 """
 import json
-import re
 import subprocess
 import sys
-from typing import Dict, List
+from typing import Any
 
 import requests
+
+USER_AGENT = "swift-overlay-fetch-script/2.0"
+HASHES_FILE = "swift_hashes.json"
+
+RELEASES_API = "https://www.swift.org/api/v1/install/releases.json"
+DEV_API = "https://www.swift.org/api/v1/install/dev/{branch}/{platform}.json"
+DOWNLOAD_ROOT = "https://download.swift.org"
+
+# Only releases with a UBI9 tarball are usable on Linux (the overlay's FHS
+# packaging is built around the Red Hat Universal Base Image 9 layout).
+LINUX_ARCHES = {
+    "x86_64": "x86_64-linux",
+    "aarch64": "aarch64-linux",
+}
 
 
 def get_sha256_hash(url: str) -> str:
@@ -25,49 +38,41 @@ def get_sha256_hash(url: str) -> str:
         text=True,
     )
     if result.returncode != 0:
-        raise Exception(f"Failed to fetch {url}: {result.stderr}")
+        raise RuntimeError(f"Failed to fetch {url}: {result.stderr}")
 
     try:
-        output_data = json.loads(result.stdout.strip())
-        return output_data["hash"]
+        return json.loads(result.stdout)["hash"]
     except (json.JSONDecodeError, KeyError) as e:
-        raise Exception(f"Could not parse JSON output: {e}")
+        raise RuntimeError(f"Could not parse JSON output: {e}") from e
 
 
-def fetch_releases_from_swift_org() -> List[Dict]:
+def fetch_stable_releases() -> list[dict[str, str]]:
+    """Fetch the list of stable Swift releases from the swift.org API.
+
+    Returns releases that ship a UBI9 tarball, newest first.
     """
-    Fetch Swift releases by scraping swift.org/download/.
-    Returns list of dicts with version info.
-    """
-    url = "https://swift.org/download/"
-    headers = {"User-Agent": "swift-overlay-fetch-script/1.0"}
-
-    response = requests.get(url, headers=headers, timeout=30)
+    response = requests.get(
+        RELEASES_API,
+        headers={"User-Agent": USER_AGENT},
+        timeout=30,
+    )
     response.raise_for_status()
 
-    html = response.text
     releases = []
+    for entry in response.json():
+        name = entry.get("name", "")
+        tag = entry.get("tag", "")
+        # Only keep releases that provide the UBI9 (Red Hat Universal Base
+        # Image 9) tarball the overlay packages.
+        has_ubi9 = any(p.get("dir") == "ubi9" for p in entry.get("platforms", []))
+        if name and tag and has_ubi9:
+            releases.append({"version": name, "tag": tag})
 
-    # Match release entries in the download page
-    # Pattern: look for swift-X.Y.Z-RELEASE links
-    pattern = r'swift-(\d+\.\d+(?:\.\d+)?)-RELEASE'
-    matches = re.findall(pattern, html)
-
-    seen = set()
-    for version in matches:
-        if version not in seen:
-            seen.add(version)
-            releases.append({
-                "version": version,
-                "tag": f"swift-{version}-RELEASE",
-            })
-
-    # Sort by version descending
+    # Newest first.
     releases.sort(
-        key=lambda x: tuple(int(n) for n in x["version"].split(".")),
+        key=lambda r: tuple(int(n) for n in r["version"].split(".")),
         reverse=True,
     )
-
     return releases
 
 
@@ -91,14 +96,14 @@ def construct_url(version: str, platform_code: str, arch: str = "x86_64") -> str
     arch_suffix = "-aarch64" if arch == "aarch64" else ""
 
     return (
-        f"https://download.swift.org/{release_tag.lower()}/"
+        f"{DOWNLOAD_ROOT}/{release_tag.lower()}/"
         f"{platform_code}{arch_suffix}/"
         f"{release_tag}/"
         f"{release_tag}-{platform_code}{arch_suffix}.tar.gz"
     )
 
 
-def fetch_dev_snapshots(branch: str) -> Dict[str, Dict[str, str]]:
+def fetch_dev_snapshots(branch: str) -> dict[str, dict[str, str]]:
     """
     Fetch development snapshots for a given branch from the Swift API.
 
@@ -108,139 +113,125 @@ def fetch_dev_snapshots(branch: str) -> Dict[str, Dict[str, str]]:
     Returns:
         Dict mapping architecture to {url, sha256}
     """
-    platforms = ["ubi9"]
-    assets = {}
+    assets: dict[str, dict[str, str]] = {}
+    url = DEV_API.format(branch=branch, platform="ubi9")
+    try:
+        response = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=15)
+        response.raise_for_status()
+        data = response.json()
+    except (requests.RequestException, ValueError) as e:
+        print(f"  Failed to fetch dev snapshots for {branch}: {e}")
+        return assets
 
-    headers = {"User-Agent": "swift-overlay-fetch-script/1.0"}
+    # The API reports `dir` (snapshot directory) and `download` (file name)
+    # relative to download.swift.org. The branch maps to a path prefix:
+    #   main -> development, 6.3 -> swift-6.3-branch, ...
+    branch_path = "development" if branch == "main" else f"swift-{branch}-branch"
 
-    for platform in platforms:
-        url = f"https://swift.org/api/v1/install/dev/{branch}/{platform}.json"
+    for arch_key, arch_name in LINUX_ARCHES.items():
+        entries = data.get(arch_key) or []
+        if not entries:
+            continue
+        snapshot = entries[0]
+        snapshot_dir = snapshot.get("dir")
+        download_name = snapshot.get("download")
+        if not snapshot_dir or not download_name:
+            continue
+        # Layout: {root}/{branch_path}/ubi9[-aarch64]/{dir}/{download}
+        arch_suffix = "" if arch_key == "x86_64" else "-aarch64"
+        download_url = (
+            f"{DOWNLOAD_ROOT}/{branch_path}/ubi9{arch_suffix}/"
+            f"{snapshot_dir}/{download_name}"
+        )
         try:
-            response = requests.get(url, headers=headers, timeout=15)
-            response.raise_for_status()
-            data = response.json()
-
-            for arch_key, arch_name in [("x86_64", "x86_64-linux"),
-                                         ("aarch64", "aarch64-linux")]:
-                if arch_key in data and len(data[arch_key]) > 0:
-                    latest = data[arch_key][0]
-                    download_url = latest.get("download")
-                    if download_url:
-                        try:
-                            sha256_hash = get_sha256_hash(download_url)
-                            assets[arch_name] = {
-                                "url": download_url,
-                                "sha256": sha256_hash,
-                            }
-                        except Exception as e:
-                            print(f"  Failed to get hash for {arch_name}: {e}")
+            assets[arch_name] = {
+                "url": download_url,
+                "sha256": get_sha256_hash(download_url),
+            }
         except Exception as e:
-            print(f"  Failed to fetch dev snapshots for {branch}/{platform}: {e}")
+            print(f"  Failed to get hash for {arch_name}: {e}")
 
     return assets
 
 
-def main():
+def url_is_available(url: str) -> bool:
+    """Check whether a download URL exists (HEAD request)."""
+    response = requests.head(
+        url,
+        headers={"User-Agent": USER_AGENT},
+        timeout=10,
+        allow_redirects=True,
+    )
+    return response.status_code == 200
+
+
+def collect_release_assets(release: dict[str, str]) -> dict[str, dict[str, str]]:
+    """Collect download URLs + hashes for every platform of one release."""
+    version = release["version"]
+    assets: dict[str, dict[str, str]] = {}
+
+    for arch, arch_key in LINUX_ARCHES.items():
+        url = construct_url(version, "ubi9", arch)
+        try:
+            if not url_is_available(url):
+                print(f"  ubi9/{arch}: Not found")
+                continue
+            assets[arch_key] = {"url": url, "sha256": get_sha256_hash(url)}
+            print(f"  {arch_key}: OK")
+        except Exception as e:
+            print(f"  ubi9/{arch}: Error - {e}")
+
+    # The official -osx.pkg is a universal binary, but we only expose
+    # aarch64-darwin because nixpkgs 26.11+ no longer supports x86_64-darwin.
+    darwin_url = (
+        f"{DOWNLOAD_ROOT}/swift-{version}-release/"
+        f"xcode/swift-{version}-RELEASE/"
+        f"swift-{version}-RELEASE-osx.pkg"
+    )
+    try:
+        if not url_is_available(darwin_url):
+            print("  darwin: Not found")
+            return assets
+        assets["aarch64-darwin"] = {"url": darwin_url, "sha256": get_sha256_hash(darwin_url)}
+        print("  darwin: OK (aarch64 only)")
+    except Exception as e:
+        print(f"  darwin: Error - {e}")
+
+    return assets
+
+
+def main() -> None:
     try:
         # Fetch stable releases from swift.org
         print("Fetching stable releases from swift.org...")
-        releases = fetch_releases_from_swift_org()
+        releases = fetch_stable_releases()
         print(f"Found {len(releases)} releases")
 
-        # Platforms to check
-        linux_platforms = [
-            ("ubi9", "x86_64"),
-            ("ubi9", "aarch64"),
-        ]
-
-        darwin_url = (
-            "https://download.swift.org/swift-{version}-release/"
-            "xcode/swift-{version}-RELEASE/"
-            "swift-{version}-RELEASE-osx.pkg"
-        )
-
-        assets_data = {}
+        assets_data: dict[str, Any] = {}
 
         # Limit to latest 10 releases for efficiency
         for release in releases[:10]:
-            version = release["version"]
-            print(f"Processing Swift {version}...")
-            version_assets = {}
-
-            # Linux URLs
-            for platform_code, arch in linux_platforms:
-                try:
-                    url = construct_url(version, platform_code, arch)
-                    # Check if URL exists (HEAD request)
-                    resp = requests.head(
-                        url,
-                        headers={"User-Agent": "swift-overlay-fetch-script/1.0"},
-                        timeout=10,
-                        allow_redirects=True,
-                    )
-                    if resp.status_code == 200:
-                        arch_key = f"{arch}-linux"
-                        sha256_hash = get_sha256_hash(url)
-                        version_assets[arch_key] = {
-                            "url": url,
-                            "sha256": sha256_hash,
-                        }
-                        print(f"  {arch_key}: OK")
-                    else:
-                        print(f"  {platform_code}/{arch}: Not found")
-                except Exception as e:
-                    print(f"  {platform_code}/{arch}: Error - {e}")
-
-            # macOS URL
-            try:
-                url = darwin_url.format(version=version)
-                resp = requests.head(
-                    url,
-                    headers={"User-Agent": "swift-overlay-fetch-script/1.0"},
-                    timeout=10,
-                    allow_redirects=True,
-                )
-                if resp.status_code == 200:
-                    sha256_hash = get_sha256_hash(url)
-                    # The official -osx.pkg is a universal binary, but we only
-                    # expose aarch64-darwin because nixpkgs 26.11+ no longer
-                    # supports x86_64-darwin.
-                    version_assets["aarch64-darwin"] = {
-                        "url": url,
-                        "sha256": sha256_hash,
-                    }
-                    print("  darwin: OK (aarch64 only)")
-                else:
-                    print("  darwin: Not found")
-            except Exception as e:
-                print(f"  darwin: Error - {e}")
-
+            print(f"Processing Swift {release['version']}...")
+            version_assets = collect_release_assets(release)
             if version_assets:
-                assets_data[version] = version_assets
+                assets_data[release["version"]] = version_assets
 
         # Try to fetch dev snapshots
         print("Fetching development snapshots...")
-        try:
-            nightly_assets = {}
-            for branch in ["main", "6.3", "6.2"]:
-                branch_assets = fetch_dev_snapshots(branch)
-                if branch_assets:
-                    nightly_assets.update(branch_assets)
+        nightly_assets: dict[str, dict[str, str]] = {}
+        for branch in ["main", "6.3", "6.2"]:
+            nightly_assets.update(fetch_dev_snapshots(branch))
 
-            if nightly_assets:
-                assets_data["nightly"] = nightly_assets
-                print(f"Nightly assets found for {len(nightly_assets)} platforms")
-        except Exception as e:
-            print(f"Warning: Failed to process nightly builds: {e}")
-            print("Continuing with regular releases only...")
+        if nightly_assets:
+            assets_data["nightly"] = nightly_assets
+            print(f"Nightly assets found for {len(nightly_assets)} platforms")
 
         # Write output
-        output_file = "swift_hashes.json"
-        with open(output_file, "w") as f:
+        with open(HASHES_FILE, "w", encoding="utf-8") as f:
             json.dump(assets_data, f, indent=2)
 
         version_count = len([k for k in assets_data if k != "nightly"])
-        print(f"\nDone! Wrote {version_count} versions to {output_file}")
+        print(f"\nDone! Wrote {version_count} versions to {HASHES_FILE}")
 
     except Exception as e:
         print(f"Error: {e}")

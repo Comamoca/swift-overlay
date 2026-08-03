@@ -51,13 +51,11 @@ UNW="$(nix eval --raw "$FLAKE_REF#default.passthru.unwrapped.outPath")" \
 FHS="$(nix eval --raw "$FLAKE_REF#default.passthru.fhs.outPath")/bin/swift-fhs"
 [ -x "$FHS" ] || fail "fhs wrapper missing at $FHS"
 miss=0
-# Only check top-level entrypoint binaries. Toolchain-internal .so files under
-# /usr/lib/swift/ resolve each other at runtime via $ORIGIN RPATHs (confirmed
-# by swift build/test passing), but ldd's flat transitive output often reports
-# them as "not found" from a different FHS symlink path.
+# Only check top-level entrypoint binaries under bin/. Toolchain-internal .so
+# files under /usr/lib/swift/ resolve each other at runtime via $ORIGIN RPATHs
+# (confirmed by swift build/test passing), but ldd's flat transitive output
+# often reports them as "not found" from a different FHS symlink path.
 while IFS= read -r -d '' f; do
-  rel="${f#"$UNW"/}"
-  [ "${rel#bin/}" != "$rel" ] || continue
   head -c4 "$f" | grep -q $'\x7fELF' || continue
   out="$("$FHS" ldd "$f" 2>&1)" || true
   if printf '%s' "$out" | grep -q "not found"; then
@@ -69,7 +67,7 @@ while IFS= read -r -d '' f; do
       miss=1
     fi
   fi
-done < <(find "$UNW/bin" -type f -print0 2>/dev/null)
+done < <(find "$UNW/bin" -maxdepth 1 -type f -print0 2>/dev/null)
 [ "$miss" = 0 ] || fail "unresolved shared libraries inside the FHS env"
 
 step "regression: evaluation matrix (non-native systems)"

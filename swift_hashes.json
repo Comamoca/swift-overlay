@@ -1,1 +1,152 @@
-{}
+{
+  "6.3.3": {
+    "x86_64-linux": {
+      "url": "https://download.swift.org/swift-6.3.3-release/ubi9/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE-ubi9.tar.gz",
+      "sha256": "sha256-i6WvU1EOouIk2BS5xWiCXoeQQyi0qMHXOy96x/yJJAY="
+    },
+    "aarch64-linux": {
+      "url": "https://download.swift.org/swift-6.3.3-release/ubi9-aarch64/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE-ubi9-aarch64.tar.gz",
+      "sha256": "sha256-Ym9S63nycwWl58Lf9oIRLvL4HAuoOA/Z33wVWVM7Efc="
+    },
+    "aarch64-darwin": {
+      "url": "https://download.swift.org/swift-6.3.3-release/xcode/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE-osx.pkg",
+      "sha256": "sha256-7oLld3TWZQ+UqgYwJDXW9EoFW5QRaY247LhdmjvMkdA="
+    }
+  },
+  "6.3.2": {
+    "x86_64-linux": {
+      "url": "https://download.swift.org/swift-6.3.2-release/ubi9/swift-6.3.2-RELEASE/swift-6.3.2-RELEASE-ubi9.tar.gz",
+      "sha256": "sha256-CFPi6V8/Vs+9ypfQdegDtE8V+KuMSZieNxZOjvDn1m0="
+    },
+    "aarch64-linux": {
+      "url": "https://download.swift.org/swift-6.3.2-release/ubi9-aarch64/swift-6.3.2-RELEASE/swift-6.3.2-RELEASE-ubi9-aarch64.tar.gz",
+      "sha256": "sha256-0Un2DyxK1iTdwi4mp/eWfec4r0Gpo5uIIHpHtyZdOZs="
+    },
+    "aarch64-darwin": {
+      "url": "https://download.swift.org/swift-6.3.2-release/xcode/swift-6.3.2-RELEASE/swift-6.3.2-RELEASE-osx.pkg",
+      "sha256": "sha256-Pdjac2MYtvCl18AbA53YUR95lMq6v5sQU03OGxnM3Kc="
+    }
+  },
+  "6.3.1": {
+    "x86_64-linux": {
+      "url": "https://download.swift.org/swift-6.3.1-release/ubi9/swift-6.3.1-RELEASE/swift-6.3.1-RELEASE-ubi9.tar.gz",
+      "sha256": "sha256-iRR0GtuW6ciwGRZw5FtAfnueB0YByS687oz0WBPvjVQ="
+    },
+    "aarch64-linux": {
+      "url": "https://download.swift.org/swift-6.3.1-release/ubi9-aarch64/swift-6.3.1-RELEASE/swift-6.3.1-RELEASE-ubi9-aarch64.tar.gz",
+      "sha256": "sha256-qQZk60tR1F60Pac4oK9/2IJk0/wRwzlE7FQ2svbWlEA="
+    },
+    "aarch64-darwin": {
+      "url": "https://download.swift.org/swift-6.3.1-release/xcode/swift-6.3.1-RELEASE/swift-6.3.1-RELEASE-osx.pkg",
+      "sha256": "sha256-bjHWaW56KBnz7/p8y7ynIaRcnjAK5fUgDLTajO0vgsg="
+    }
+  },
+  "6.3": {
+    "x86_64-linux": {
+      "url": "https://download.swift.org/swift-6.3-release/ubi9/swift-6.3-RELEASE/swift-6.3-RELEASE-ubi9.tar.gz",
+      "sha256": "sha256-zmYx2uH4WPin26zU8trZzzhuEtEIeznTv+sf2cysWn4="
+    },
+    "aarch64-linux": {
+      "url": "https://download.swift.org/swift-6.3-release/ubi9-aarch64/swift-6.3-RELEASE/swift-6.3-RELEASE-ubi9-aarch64.tar.gz",
+      "sha256": "sha256-L5j4YYR/Ub8pW5AJhpyZJSMjnRriWNdCP2qLfiFKY6o="
+    },
+    "aarch64-darwin": {
+      "url": "https://download.swift.org/swift-6.3-release/xcode/swift-6.3-RELEASE/swift-6.3-RELEASE-osx.pkg",
+      "sha256": "sha256-/eQr/y4YfaiPcgM5h76WE98QZeC6WmKbwsPBlojQnL0="
+    }
+  },
+  "6.2.4": {
+    "x86_64-linux": {
+      "url": "https://download.swift.org/swift-6.2.4-release/ubi9/swift-6.2.4-RELEASE/swift-6.2.4-RELEASE-ubi9.tar.gz",
+      "sha256": "sha256-WFp7n7ysOE7PEPAkVQ1FNof8MMg0+WQZG+20/FWee8U="
+    },
+    "aarch64-linux": {
+      "url": "https://download.swift.org/swift-6.2.4-release/ubi9-aarch64/swift-6.2.4-RELEASE/swift-6.2.4-RELEASE-ubi9-aarch64.tar.gz",
+      "sha256": "sha256-DYP9HFpoFp/t8eguQDkIQeNwoBe+vpR6s3gCj9jjqW0="
+    },
+    "aarch64-darwin": {
+      "url": "https://download.swift.org/swift-6.2.4-release/xcode/swift-6.2.4-RELEASE/swift-6.2.4-RELEASE-osx.pkg",
+      "sha256": "sha256-nJRjf9qDEpAaCOVyplHDoYpnJomthn+WySV7Q3dRWek="
+    }
+  },
+  "6.2.3": {
+    "x86_64-linux": {
+      "url": "https://download.swift.org/swift-6.2.3-release/ubi9/swift-6.2.3-RELEASE/swift-6.2.3-RELEASE-ubi9.tar.gz",
+      "sha256": "sha256-pDOZqtnVsZ99fW+I7RkSnKavrzS7a0VcoB5hqY7EJfI="
+    },
+    "aarch64-linux": {
+      "url": "https://download.swift.org/swift-6.2.3-release/ubi9-aarch64/swift-6.2.3-RELEASE/swift-6.2.3-RELEASE-ubi9-aarch64.tar.gz",
+      "sha256": "sha256-xoRTG0CSbB/BOWof+3u0WghPD1ye//u/CBa1SmkNvxI="
+    },
+    "aarch64-darwin": {
+      "url": "https://download.swift.org/swift-6.2.3-release/xcode/swift-6.2.3-RELEASE/swift-6.2.3-RELEASE-osx.pkg",
+      "sha256": "sha256-we2Ez1QyhsVJyqzMR+C0fYxhw8j+284SBd7cvr52Aag="
+    }
+  },
+  "6.2.2": {
+    "x86_64-linux": {
+      "url": "https://download.swift.org/swift-6.2.2-release/ubi9/swift-6.2.2-RELEASE/swift-6.2.2-RELEASE-ubi9.tar.gz",
+      "sha256": "sha256-qQtha5dhb9xJBrq87UlhmCqzah485EzwfUoDYphSmrs="
+    },
+    "aarch64-linux": {
+      "url": "https://download.swift.org/swift-6.2.2-release/ubi9-aarch64/swift-6.2.2-RELEASE/swift-6.2.2-RELEASE-ubi9-aarch64.tar.gz",
+      "sha256": "sha256-rXXZKlA4SKPwrfYMFreYbpzAQcIlEXUw3+dHyldbPK8="
+    },
+    "aarch64-darwin": {
+      "url": "https://download.swift.org/swift-6.2.2-release/xcode/swift-6.2.2-RELEASE/swift-6.2.2-RELEASE-osx.pkg",
+      "sha256": "sha256-EXOIbiCEpnBad0h15LGy/O64kNec7VTugkz9EL3CYyg="
+    }
+  },
+  "6.2.1": {
+    "x86_64-linux": {
+      "url": "https://download.swift.org/swift-6.2.1-release/ubi9/swift-6.2.1-RELEASE/swift-6.2.1-RELEASE-ubi9.tar.gz",
+      "sha256": "sha256-mggsPv3touZcvHA40MKVt1+kjzYDabJThEn8ZlGS2j4="
+    },
+    "aarch64-linux": {
+      "url": "https://download.swift.org/swift-6.2.1-release/ubi9-aarch64/swift-6.2.1-RELEASE/swift-6.2.1-RELEASE-ubi9-aarch64.tar.gz",
+      "sha256": "sha256-R/EJ8fY/ok3zZZZ2uxr6wv3QXAlU1PAJd9pqho3THmY="
+    },
+    "aarch64-darwin": {
+      "url": "https://download.swift.org/swift-6.2.1-release/xcode/swift-6.2.1-RELEASE/swift-6.2.1-RELEASE-osx.pkg",
+      "sha256": "sha256-TKE9Cr02RmTRn6zXXiNjDAiEiYu8rxkgtF3yiL24bLI="
+    }
+  },
+  "6.2": {
+    "x86_64-linux": {
+      "url": "https://download.swift.org/swift-6.2-release/ubi9/swift-6.2-RELEASE/swift-6.2-RELEASE-ubi9.tar.gz",
+      "sha256": "sha256-v1MZPQBxXOJYqbU8dA5ek1Dn9ZcJ3dvEfg2GSRFhE1Y="
+    },
+    "aarch64-linux": {
+      "url": "https://download.swift.org/swift-6.2-release/ubi9-aarch64/swift-6.2-RELEASE/swift-6.2-RELEASE-ubi9-aarch64.tar.gz",
+      "sha256": "sha256-OfwQiuBQJpROEK9pBTVn2mwt980RQQGr2S7S2BxM2aE="
+    },
+    "aarch64-darwin": {
+      "url": "https://download.swift.org/swift-6.2-release/xcode/swift-6.2-RELEASE/swift-6.2-RELEASE-osx.pkg",
+      "sha256": "sha256-nqxKE1AMem3t/ZCBT9McF68u/DgVATe1a3C/X0Sy1ks="
+    }
+  },
+  "6.1.3": {
+    "x86_64-linux": {
+      "url": "https://download.swift.org/swift-6.1.3-release/ubi9/swift-6.1.3-RELEASE/swift-6.1.3-RELEASE-ubi9.tar.gz",
+      "sha256": "sha256-uZOj/rraEt7G5EWnTPg9bmy8lJLgftWUaeKdEMOgYG8="
+    },
+    "aarch64-linux": {
+      "url": "https://download.swift.org/swift-6.1.3-release/ubi9-aarch64/swift-6.1.3-RELEASE/swift-6.1.3-RELEASE-ubi9-aarch64.tar.gz",
+      "sha256": "sha256-N+/jqgsOv9FPoQFxDobgsPV03Loz/rKizyyoFrjHBYs="
+    },
+    "aarch64-darwin": {
+      "url": "https://download.swift.org/swift-6.1.3-release/xcode/swift-6.1.3-RELEASE/swift-6.1.3-RELEASE-osx.pkg",
+      "sha256": "sha256-+JmfJ6ZRkjuqulfOLIm2JcRBL2lFzQl6ATO2HlYvUQM="
+    }
+  },
+  "nightly": {
+    "x86_64-linux": {
+      "url": "https://download.swift.org/swift-6.2-branch/ubi9/swift-6.2-DEVELOPMENT-SNAPSHOT-2025-12-03-a/swift-6.2-DEVELOPMENT-SNAPSHOT-2025-12-03-a-ubi9.tar.gz",
+      "sha256": "sha256-vfB6meNnRrgWjigXs7c0M4snY+QZyh7hxfeAXdb4lSA="
+    },
+    "aarch64-linux": {
+      "url": "https://download.swift.org/swift-6.2-branch/ubi9-aarch64/swift-6.2-DEVELOPMENT-SNAPSHOT-2025-12-03-a/swift-6.2-DEVELOPMENT-SNAPSHOT-2025-12-03-a-ubi9-aarch64.tar.gz",
+      "sha256": "sha256-Y8ykMy+vkP0/GduGm0HoVwvgILU0XF5BJr6JDsYrDYE="
+    }
+  }
+}

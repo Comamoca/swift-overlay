@@ -10,6 +10,15 @@ let
   stdenv = pkgs.stdenv;
   hashes = lib.importJSON ./swift_hashes.json;
 
+  # Shared metadata for every toolchain derivation.
+  swiftMeta = platforms: {
+    description = "A general-purpose programming language for building modern software";
+    homepage = "https://swift.org";
+    license = lib.licenses.asl20;
+    mainProgram = "swift";
+    inherit platforms;
+  };
+
   getCurrentArch =
     if stdenv.isDarwin then
       "aarch64-darwin"
@@ -121,16 +130,10 @@ let
         passthru = {
           inherit unwrapped fhs;
         };
-        meta = with lib; {
-          description = "A general-purpose programming language for building modern software";
-          homepage = "https://swift.org";
-          license = licenses.asl20;
-          mainProgram = "swift";
-          platforms = [
-            "x86_64-linux"
-            "aarch64-linux"
-          ];
-        };
+        meta = swiftMeta [
+          "x86_64-linux"
+          "aarch64-linux"
+        ];
       }
       ''
         mkdir -p $out/bin
@@ -195,15 +198,7 @@ WRAPPER
 
       dontStrip = true;
 
-      meta = with lib; {
-        description = "A general-purpose programming language for building modern software";
-        homepage = "https://swift.org";
-        license = licenses.asl20;
-        mainProgram = "swift";
-          platforms = [
-            "aarch64-darwin"
-          ];
-      };
+      meta = swiftMeta [ "aarch64-darwin" ];
     };
 
   mkSwift =
@@ -213,7 +208,8 @@ WRAPPER
     else
       mkSwiftLinux version archData;
 
-  swiftVersions = builtins.mapAttrs (
+  # Resolve the toolchain for `version` on the current architecture.
+  mkSwiftFor =
     version: platforms:
     let
       currentArch = getCurrentArch;
@@ -221,24 +217,31 @@ WRAPPER
     if builtins.hasAttr currentArch platforms then
       mkSwift version platforms.${currentArch}
     else
-      throw "Architecture ${currentArch} not supported for Swift version ${version}"
-  ) (builtins.removeAttrs hashes [ "latest" ]);
+      throw "Architecture ${currentArch} not supported for Swift version ${version}";
 
+  # Stable versions in ascending order ("latest" / "nightly" / pre-releases
+  # excluded), used to resolve `bin.latest`.
+  stableVersions =
+    let
+      all = builtins.attrNames (builtins.removeAttrs hashes [ "latest" "nightly" ]);
+      stable = builtins.filter (v: builtins.match ".*-.*" v == null) all;
+    in
+    builtins.sort (a: b: builtins.compareVersions a b < 0) stable;
+
+  swiftVersions = builtins.mapAttrs mkSwiftFor (builtins.removeAttrs hashes [ "latest" ]);
 in
-rec {
-  bin = swiftVersions // {
-    latest =
-      let
-        currentArch = getCurrentArch;
-        allVersions = builtins.filter (v: v != "nightly") (builtins.attrNames hashes);
-        stableVersions = builtins.filter (v: !(builtins.match ".*-.*" v != null)) allVersions;
-        sortedVersions = builtins.sort (a: b: builtins.compareVersions a b < 0) stableVersions;
-        latestVersion = builtins.elemAt sortedVersions ((builtins.length sortedVersions) - 1);
-        latestPlatforms = hashes.${latestVersion};
-      in
-      if builtins.hasAttr currentArch latestPlatforms then
-        mkSwift latestVersion latestPlatforms.${currentArch}
-      else
-        throw "Architecture ${currentArch} not supported for latest Swift version ${latestVersion}";
-  } // swiftVersions;
+{
+  bin =
+    let
+      latestVersion =
+        if stableVersions == [ ] then
+          throw "swift_hashes.json contains no stable Swift versions; run scripts/fetch_swift_releases.py first"
+        else
+          builtins.elemAt stableVersions (builtins.length stableVersions - 1);
+    in
+    {
+      latest = mkSwiftFor latestVersion hashes.${latestVersion};
+    }
+    // swiftVersions;
 }
+
