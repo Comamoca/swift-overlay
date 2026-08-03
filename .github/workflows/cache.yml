@@ -8,6 +8,7 @@ on:
 jobs:
   cache-builds:
     strategy:
+      fail-fast: false
       matrix:
         system:
           - x86_64-linux
@@ -21,15 +22,18 @@ jobs:
           - system: aarch64-darwin
             runner: macos-14
     runs-on: ${{ matrix.runner }}
+    env:
+      HAS_CACHIX_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN != '' }}
     steps:
     - uses: actions/checkout@v7
     - uses: nixbuild/nix-quick-install-action@v30
       with:
-        nix-build-max-jobs: auto
+        nix_conf: max-jobs = auto
     - uses: cachix/cachix-action@v14
+      if: env.HAS_CACHIX_TOKEN == 'true'
       with:
         name: swift-overlay
-        authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+        authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
     - name: Build all Swift versions for ${{ matrix.system }}
       run: |
         # Get all available versions from swift_hashes.json

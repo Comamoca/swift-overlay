@@ -13,9 +13,12 @@ jobs:
       issues: write
       pull-requests: write
     runs-on: ubuntu-latest
+    env:
+      HAS_APP_TOKEN: ${{ secrets.APP_ID != '' && secrets.APP_PRIVATE_KEY != '' }}
     steps:
       - name: Generate GitHub App Token
         id: app-token
+        if: env.HAS_APP_TOKEN == 'true'
         uses: actions/create-github-app-token@v1
         with:
           app-id: ${{ secrets.APP_ID }}
@@ -23,11 +26,11 @@ jobs:
 
       - uses: actions/checkout@v7
         with:
-          token: ${{ steps.app-token.outputs.token }}
+          token: ${{ steps.app-token.outputs.token || github.token }}
 
       - uses: nixbuild/nix-quick-install-action@v30
         with:
-          nix-build-max-jobs: auto
+          nix_conf: max-jobs = auto
 
       - uses: DeterminateSystems/update-flake-lock@main
         with:
@@ -35,4 +38,4 @@ jobs:
           pr-labels: |
             dependencies
             automated
-          token: ${{ steps.app-token.outputs.token }}
+          token: ${{ steps.app-token.outputs.token || github.token }}
