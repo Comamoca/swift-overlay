@@ -39,7 +39,9 @@ jobs:
     - name: Evaluate all Swift versions for ${{ matrix.system }}
       if: matrix.system == 'aarch64-linux'
       run: |
-        VERSIONS=$(jq -r 'keys[] | select(. != "latest")' swift_hashes.json)
+        VERSIONS=$(jq -r --arg sys "${{ matrix.system }}" \
+          'to_entries[] | select(.key != "latest") | select(.value | has($sys)) | .key' \
+          swift_hashes.json)
         for version in $VERSIONS; do
           nix eval --raw ".#packages.${{ matrix.system }}.\"$version\".drvPath" > /dev/null
           echo "  $version OK"
@@ -49,10 +51,13 @@ jobs:
     - name: Build all Swift versions for ${{ matrix.system }}
       if: matrix.system != 'aarch64-linux'
       run: |
-        # Get all available versions from swift_hashes.json
-        # Versions with dots (e.g. 6.1.3) must be quoted in the flake
-        # attribute path so Nix does not treat them as nested attrs.
-        VERSIONS=$(jq -r 'keys[] | select(. != "latest")' swift_hashes.json)
+        # Get all available versions from swift_hashes.json that are
+        # available for this system. Versions with dots (e.g. 6.1.3) must
+        # be quoted in the flake attribute path so Nix does not treat them
+        # as nested attrs.
+        VERSIONS=$(jq -r --arg sys "${{ matrix.system }}" \
+          'to_entries[] | select(.key != "latest") | select(.value | has($sys)) | .key' \
+          swift_hashes.json)
 
         # Build each version for the current system. On darwin the runner
         # disk is small, so push to Cachix and garbage-collect after every
