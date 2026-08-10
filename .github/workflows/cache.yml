@@ -34,17 +34,40 @@ jobs:
       with:
         name: swift-overlay
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+    # aarch64-linux cannot be built on an x86_64 ubuntu runner without
+    # QEMU/binfmt emulation, so only check that the derivations evaluate.
+    - name: Evaluate all Swift versions for ${{ matrix.system }}
+      if: matrix.system == 'aarch64-linux'
+      run: |
+        VERSIONS=$(jq -r 'keys[] | select(. != "latest")' swift_hashes.json)
+        for version in $VERSIONS; do
+          nix eval --raw ".#packages.${{ matrix.system }}.\"$version\".drvPath" > /dev/null
+          echo "  $version OK"
+        done
+        nix eval --raw ".#packages.${{ matrix.system }}.default.drvPath" > /dev/null
+        echo "  default OK"
     - name: Build all Swift versions for ${{ matrix.system }}
+      if: matrix.system != 'aarch64-linux'
       run: |
         # Get all available versions from swift_hashes.json
         # Versions with dots (e.g. 6.1.3) must be quoted in the flake
         # attribute path so Nix does not treat them as nested attrs.
         VERSIONS=$(jq -r 'keys[] | select(. != "latest")' swift_hashes.json)
 
-        # Build each version for the current system
+        # Build each version for the current system. On darwin the runner
+        # disk is small, so push to Cachix and garbage-collect after every
+        # version to keep the store under the disk limit.
         for version in $VERSIONS; do
-          nix build --system ${{ matrix.system }} ".#\"$version\""
+          nix build --no-link --system ${{ matrix.system }} ".#\"$version\""
+          if [ "$HAS_CACHIX_TOKEN" = "true" ]; then
+            nix path-info ".#\"$version\"" | xargs cachix push swift-overlay
+          fi
+          nix store gc
         done
 
         # Build latest
-        nix build --system ${{ matrix.system }} ".#default"
+        nix build --no-link --system ${{ matrix.system }} ".#default"
+        if [ "$HAS_CACHIX_TOKEN" = "true" ]; then
+          nix path-info ".#default" | xargs cachix push swift-overlay
+        fi
+        nix store gc
