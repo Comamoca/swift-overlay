@@ -1,9 +1,9 @@
-name: Update Nix Flakes
+name: "Flake.lock: update Nix dependencies"
 
 on:
+  workflow_dispatch: # allows manual triggering
   schedule:
-    - cron: '0 17 * * *'  # Run daily at 2 AM JST (17:00 UTC)
-  workflow_dispatch:  # Allow manual trigger
+    - cron: '0 0 * * 0' # runs weekly on Sunday at 00:00
 
 jobs:
   nix-flake-update:
@@ -13,29 +13,12 @@ jobs:
       issues: write
       pull-requests: write
     runs-on: ubuntu-latest
-    env:
-      HAS_APP_TOKEN: ${{ secrets.APP_ID != '' && secrets.APP_PRIVATE_KEY != '' }}
     steps:
-      - name: Generate GitHub App Token
-        id: app-token
-        if: env.HAS_APP_TOKEN == 'true'
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ secrets.APP_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
-
       - uses: actions/checkout@v7
-        with:
-          token: ${{ steps.app-token.outputs.token || github.token }}
-
-      - uses: nixbuild/nix-quick-install-action@v30
-        with:
-          nix_conf: max-jobs = auto
-
+      - uses: DeterminateSystems/determinate-nix-action@v3
       - uses: DeterminateSystems/update-flake-lock@main
         with:
-          pr-title: "Update Nix flake inputs"
-          pr-labels: |
+          pr-title: "Update Nix flake inputs" # Title of PR to be created
+          pr-labels: |                  # Labels to be set on the PR
             dependencies
             automated
-          token: ${{ steps.app-token.outputs.token || github.token }}
