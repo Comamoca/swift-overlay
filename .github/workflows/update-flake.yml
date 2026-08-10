@@ -33,9 +33,10 @@ jobs:
           nix_conf: max-jobs = auto
 
       - uses: DeterminateSystems/update-flake-lock@main
+        if: env.HAS_APP_TOKEN == 'true'
         with:
           pr-title: "Update Nix flake inputs"
           pr-labels: |
             dependencies
             automated
-          token: ${{ steps.app-token.outputs.token || github.token }}
+          token: ${{ steps.app-token.outputs.token }}
