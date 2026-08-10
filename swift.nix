@@ -164,19 +164,31 @@ WRAPPER
       nativeBuildInputs = [
         pkgs.xar
         pkgs.cpio
+        pkgs.gzip
       ];
 
       unpackPhase = ''
         mkdir -p $TMPDIR/extract
         xar -xf $src -C $TMPDIR/extract
-        cd $TMPDIR/extract
+        # The .pkg contains a nested <name>.pkg/ directory holding Payload.
+        PAYLOAD=$(find $TMPDIR/extract -name Payload -type f | head -1)
+        if [ -z "$PAYLOAD" ]; then
+          echo "Error: Payload not found in xar archive"
+          exit 1
+        fi
         mkdir -p $TMPDIR/payload
         cd $TMPDIR/payload
-        cpio -id < $TMPDIR/extract/Payload 2>/dev/null || true
+        # Payload is a gzip-compressed cpio archive; cpio does not
+        # decompress on its own.
+        gzip -dc "$PAYLOAD" | cpio -id 2>/dev/null || true
         TOOLCHAIN_DIR=$(ls -d Library/Developer/Toolchains/*.xctoolchain 2>/dev/null | head -1)
         if [ -n "$TOOLCHAIN_DIR" ]; then
           mkdir -p $TMPDIR/swift-out
           cp -r "$TOOLCHAIN_DIR/usr/"* $TMPDIR/swift-out/
+        elif [ -d "usr" ]; then
+          # Newer swift.org packages put the toolchain directly in usr/.
+          mkdir -p $TMPDIR/swift-out
+          cp -r usr/* $TMPDIR/swift-out/
         else
           echo "Warning: No .xctoolchain directory found"
           ls -la Library/Developer/ 2>/dev/null || echo "No Library/Developer found"
